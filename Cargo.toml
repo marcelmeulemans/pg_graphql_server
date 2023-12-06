@@ -1,0 +1,45 @@
+[package]
+name = "pg_graphql_server"
+version = "0.0.1"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = ["pg15"]
+pg14 = ["pgrx/pg14", "pgrx-tests/pg14" ]
+pg15 = ["pgrx/pg15", "pgrx-tests/pg15" ]
+pg16 = ["pgrx/pg16", "pgrx-tests/pg16" ]
+pg_test = []
+
+[dependencies]
+pgrx = "=0.10.0"
+async-graphql = "5.0"
+async-graphql-axum = "5.0"
+tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread", "tracing", "signal"] }
+axum = { version = "0.6", default-features = false, features = ["json", "query", "tokio", "http2", "matched-path", "original-uri", "tower-log" ] }
+tokio-postgres = { version = "0.7" }
+sqlx = { version = "0.7", features = [ "postgres", "json", "runtime-tokio" ] }
+console-subscriber = "0.1"
+tracing-subscriber = "0.3"
+anyhow = "1.0.75"
+thiserror = "1.0.50"
+serde_json = "1.0"
+libc = "0.2"
+const_format = "0.2.31"
+predicates = "3.0.4"
+log = "0.4"
+simple_logger = { version = "4.3", default-features = false, features = ["timestamps"] }
+
+[dev-dependencies]
+pgrx-tests = "=0.10.0"
+
+[profile.dev]
+panic = "unwind"
+
+[profile.release]
+panic = "unwind"
+opt-level = 3
+lto = "fat"
+codegen-units = 1

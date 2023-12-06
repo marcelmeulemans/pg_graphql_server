@@ -1,0 +1,6 @@
+comment = 'This extension lets you run a GraphQL server directly in postgres'
+default_version = '@CARGO_VERSION@'
+module_pathname = '$libdir/pg_graphql_server'
+relocatable = false
+superuser = false
+#schema = 'graphql_server'
