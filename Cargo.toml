@@ -14,7 +14,7 @@ pg16 = ["pgrx/pg16", "pgrx-tests/pg16" ]
 pg_test = []
 
 [dependencies]
-pgrx = "=0.10.0"
+pgrx = "=0.11.2"
 async-graphql = "5.0"
 async-graphql-axum = "5.0"
 tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread", "tracing", "signal"] }
@@ -31,9 +31,19 @@ const_format = "0.2.31"
 predicates = "3.0.4"
 log = "0.4"
 simple_logger = { version = "4.3", default-features = false, features = ["timestamps"] }
+tokio-stream = "0.1.14"
+bytes = "1.5.0"
+futures = "0.3.29"
+pin-project-lite = "0.2.13"
+combine = "4.6.6"
+axum-macros = "0.4.0"
+futures-concurrency = "7.4.3"
+regex = "1.10.2"
+ouroboros = "0.18.2"
+mime_guess = "2.0.4"
 
 [dev-dependencies]
-pgrx-tests = "=0.10.0"
+pgrx-tests = "=0.11.2"
 
 [profile.dev]
 panic = "unwind"

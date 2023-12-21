@@ -14,6 +14,7 @@ use std::{thread, time};
 use tokio::runtime::Builder;
 
 mod config;
+mod handlers;
 mod server;
 
 use config::ServerConfig;
@@ -304,7 +305,7 @@ fn destroy_servers(servers: &mut HashMap<i32, ServerState>, predicate: &BoxPredi
 //     config: ServerConfig,
 //     rx: tokio::sync::oneshot::Receiver<()>,
 // ) -> anyhow::Result<()> {
-//     println!("#### Hello from inside thread on port {:?}", config);
+//     println!("Hello from inside thread on port {:?}", config);
 //     match SystemTime::now().duration_since(UNIX_EPOCH) {
 //         Ok(n) => {
 //             if n.as_secs() % 2 == 0 {
@@ -322,7 +323,7 @@ fn destroy_servers(servers: &mut HashMap<i32, ServerState>, predicate: &BoxPredi
 //         }
 //         Err(_) => panic!("SystemTime before UNIX EPOCH!"),
 //     }
-//     println!("#### Bye from inside thread");
+//     println!("Bye from inside thread");
 
 //     Ok(())
 // }

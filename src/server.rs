@@ -1,16 +1,9 @@
 use anyhow::bail;
-use async_graphql_axum::GraphQLRequest;
-use axum::{
-    extract::State,
-    response::{IntoResponse, Json},
-    routing::get,
-    Router,
-};
+use axum::{extract::State, routing::get, Router};
 use pgrx::prelude::*;
-use serde_json::{json, Value};
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
-    ConnectOptions, Pool, Row,
+    ConnectOptions, Row,
 };
 use std::{
     net::{Ipv4Addr, SocketAddr},
@@ -18,7 +11,7 @@ use std::{
 };
 use thiserror::Error;
 
-use crate::config::ServerConfig;
+use crate::{asset_handler, config::ServerConfig};
 
 #[derive(Error, Debug)]
 enum ServerErrors {
@@ -26,64 +19,7 @@ enum ServerErrors {
     GraphQlExtensionNotAvailable,
 }
 
-#[derive(Clone)]
-struct ServerContext {
-    pool: Pool<sqlx::Postgres>,
-}
-
-async fn health_handler(State(state): State<ServerContext>) -> Json<Value> {
-    Json(json!({
-        "pool": {
-            "size": state.pool.size(),
-            "idle": state.pool.num_idle() as u32
-        }
-    }))
-}
-
-async fn graphql_handler(
-    State(state): State<ServerContext>,
-    req: GraphQLRequest,
-) -> Result<Json<Value>, HandlerError> {
-    let json: Value = sqlx::query_scalar("SELECT graphql.resolve($1)")
-        .bind(req.0.query)
-        .fetch_one(&state.pool)
-        .await?;
-    Ok(Json(json))
-}
-
-struct HandlerError(sqlx::Error);
-
-// impl<E> From<E> for AppError
-// where
-//     E: Into<sqlx::Error>,
-// {
-//     fn from(err: E) -> Self {
-//         Self(err.into())
-//     }
-// }
-
-impl From<sqlx::Error> for HandlerError {
-    fn from(e: sqlx::Error) -> Self {
-        Self(e.into())
-    }
-}
-
-impl IntoResponse for HandlerError {
-    #[cfg(debug_assertions)]
-    fn into_response(self) -> axum::response::Response {
-        use axum::http::StatusCode;
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Internal Server Error: {}", self.0),
-        )
-            .into_response()
-    }
-
-    #[cfg(not(debug_assertions))]
-    fn into_response(self) -> axum::response::Response {
-        (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response()
-    }
-}
+use crate::handlers;
 
 pub async fn run_server(
     config: ServerConfig,
@@ -93,7 +29,7 @@ pub async fn run_server(
 
     log::debug!("initializing http server on {}", socket);
 
-    let state = ServerContext {
+    let state = handlers::ServerContext {
         pool: PgPoolOptions::new()
             .max_connections(5)
             .min_connections(5)
@@ -117,6 +53,7 @@ pub async fn run_server(
         config.postgres_user
     );
 
+    // TODO: Remove this? Do we really need to check, or should the graphql handler just return an error if not the pg_graphql extension is not installed. Or maybe run this if the using the extension fails.
     match sqlx::query("SELECT default_version AS available_version, (SELECT extversion FROM pg_catalog.pg_extension WHERE extname=name) AS installed_version FROM pg_available_extensions() WHERE name='pg_graphql'")
         .fetch_optional(&state.pool)
         .await? {
@@ -135,8 +72,13 @@ pub async fn run_server(
         };
 
     let router = Router::new()
-        .route("/health", get(health_handler))
-        .route("/graphql", get(graphql_handler).post(graphql_handler))
+        .route("/", get(asset_handler!("index.html")))
+        .route("/health", get(handlers::health_handler))
+        .route(
+            "/graphql",
+            get(handlers::graphiql_handler).post(handlers::graphql_handler),
+        )
+        .route("/*path", get(handlers::asset_path_handler))
         .with_state(state);
 
     log::info!("http server start listen on {}", socket);
