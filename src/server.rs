@@ -1,9 +1,10 @@
-use anyhow::bail;
+use crate::handlers;
+use crate::{asset_handler, config::ServerConfig};
 use axum::{extract::State, routing::get, Router};
 use pgrx::prelude::*;
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
-    ConnectOptions, Row,
+    ConnectOptions,
 };
 use std::{
     net::{Ipv4Addr, SocketAddr},
@@ -11,23 +12,21 @@ use std::{
 };
 use thiserror::Error;
 
-use crate::{asset_handler, config::ServerConfig};
-
 #[derive(Error, Debug)]
-enum ServerErrors {
-    #[error("the pg_graphql extension is not available")]
-    GraphQlExtensionNotAvailable,
+pub enum ServerError {
+    #[error("database connetion failed")]
+    DatabaseConnectionFailed,
+    #[error("failed to start http server")]
+    BindFailed,
 }
-
-use crate::handlers;
 
 pub async fn run_server(
     config: ServerConfig,
     rx: tokio::sync::oneshot::Receiver<()>,
-) -> anyhow::Result<()> {
+) -> Result<(), ServerError> {
     let socket = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), config.listen_port);
 
-    log::debug!("initializing http server on {}", socket);
+    tracing::debug!("initializing http server on {}", socket);
 
     let state = handlers::ServerContext {
         pool: PgPoolOptions::new()
@@ -44,32 +43,15 @@ pub async fn run_server(
                     .database(&config.database_name)
                     .log_statements(log::LevelFilter::Trace),
             )
-            .await?,
+            .await
+            .map_err(|_| ServerError::DatabaseConnectionFailed)?,
     };
 
-    log::info!(
+    tracing::info!(
         "connected to database {} as user {}",
         config.database_name,
         config.postgres_user
     );
-
-    // TODO: Remove this? Do we really need to check, or should the graphql handler just return an error if not the pg_graphql extension is not installed. Or maybe run this if the using the extension fails.
-    match sqlx::query("SELECT default_version AS available_version, (SELECT extversion FROM pg_catalog.pg_extension WHERE extname=name) AS installed_version FROM pg_available_extensions() WHERE name='pg_graphql'")
-        .fetch_optional(&state.pool)
-        .await? {
-            Some(row) => {
-                if let Ok(available_version) = row.try_get::<String, usize>(0) {
-                    if let Ok(installed_version) = row.try_get::<String, usize>(1) {
-                        log::debug!("detected pg_graphql version {}", installed_version);
-                    } else {
-                        log::warn!("extension pg_graphql {} is available but not installed", available_version);
-                    }
-                } else {
-                    bail!(ServerErrors::GraphQlExtensionNotAvailable)
-                }
-            },
-            None => bail!(ServerErrors::GraphQlExtensionNotAvailable)
-        };
 
     let router = Router::new()
         .route("/", get(asset_handler!("index.html")))
@@ -79,18 +61,20 @@ pub async fn run_server(
             get(handlers::graphiql_handler).post(handlers::graphql_handler),
         )
         .route("/*path", get(handlers::asset_path_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(tower_http::trace::TraceLayer::new_for_http());
 
-    log::info!("http server start listen on {}", socket);
+    tracing::info!("http server start listen on {}", socket);
 
     axum::Server::bind(&socket)
         .serve(router.into_make_service())
         .with_graceful_shutdown(async {
             rx.await.ok();
         })
-        .await?;
+        .await
+        .map_err(|_| ServerError::BindFailed)?;
 
-    log::debug!("http server on {} has shutdown", socket);
+    tracing::debug!("http server on {} has shutdown", socket);
 
     Ok(())
 }

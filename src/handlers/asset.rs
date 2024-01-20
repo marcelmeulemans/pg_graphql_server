@@ -6,9 +6,11 @@ use axum::{
 use bytes::{Bytes, BytesMut};
 use combine::{stream::position::Stream, Parser};
 use futures::StreamExt;
+use tracing::{instrument, Instrument};
 
 use super::context::ServerContext;
 
+#[instrument(skip(state))]
 pub async fn asset_path_handler(
     State(state): State<ServerContext>,
     Path(path): Path<String>,
@@ -21,16 +23,24 @@ pub async fn asset_path_handler(
     }
 }
 
+#[instrument(skip(pool))]
 async fn get_asset_query_copy_out_data(
     pool: &sqlx::Pool<sqlx::Postgres>,
     path: &str,
 ) -> Result<Bytes, sqlx::Error> {
     let sql = format!("copy (select name, md5(data), data from assets where name='{}' limit 1) to stdout with binary;", path);
     let mut connection = pool.acquire().await?;
-    let mut stream = connection.copy_out_raw(sql.as_str()).await?;
+    let mut stream = connection
+        .copy_out_raw(sql.as_str())
+        .instrument(tracing::debug_span!("query_asset"))
+        .await?;
     let mut buffer = BytesMut::with_capacity(16 * 1024);
     let mut error: Option<sqlx::Error> = None;
-    while let Some(result) = stream.next().await {
+    while let Some(result) = stream
+        .next()
+        .instrument(tracing::debug_span!("stream_next"))
+        .await
+    {
         match result {
             Ok(bytes) => buffer.extend_from_slice(&bytes),
             Err(e) => error = Some(e),
@@ -43,10 +53,12 @@ async fn get_asset_query_copy_out_data(
     }
 }
 
+#[instrument(skip(pool))]
 pub async fn get_asset_response(
     pool: &sqlx::Pool<sqlx::Postgres>,
     path: &str,
 ) -> axum::response::Response {
+    // let _span = span!(Level::INFO, "query_asset", answer = 42).entered();
     match get_asset_query_copy_out_data(pool, path).await {
         Ok(buffer) => {
             let content_type = mime_guess::from_path(path)
@@ -54,16 +66,19 @@ pub async fn get_asset_response(
                 .to_string();
             let parser_result = parser::parse_asset_stream().parse(Stream::new(&buffer[..]));
             match parser_result {
-                Ok((asset, _)) => (
-                    StatusCode::OK,
-                    [
-                        (header::CONTENT_TYPE, content_type),
-                        (header::ETAG, asset.hash),
-                        (header::CONTENT_LENGTH, asset.body.len().to_string()),
-                    ],
-                    buffer.slice(asset.body),
-                )
-                    .into_response(),
+                Ok((asset, _)) => {
+                    tracing::debug!("Found asset {} of {} bytes", path, asset.body.len());
+                    (
+                        StatusCode::OK,
+                        [
+                            (header::CONTENT_TYPE, content_type),
+                            (header::ETAG, asset.hash),
+                            (header::CONTENT_LENGTH, asset.body.len().to_string()),
+                        ],
+                        buffer.slice(asset.body),
+                    )
+                        .into_response()
+                }
 
                 Err(_) => (StatusCode::NOT_FOUND).into_response(),
             }
@@ -79,6 +94,7 @@ mod parser {
         any, parser::byte::bytes, parser::byte::num::be_i32, parser::range::take,
         parser::repeat::skip_count, parser::token::position, ParseError, Parser, RangeStream,
     };
+    use tracing::instrument;
 
     const HEADER_MAGIC: &[u8] = b"PGCOPY\n\xff\r\n\0";
     //const EOS_MARKER: &[u8] = b"\xff\xff";
@@ -90,6 +106,7 @@ mod parser {
         pub body: std::ops::Range<usize>,
     }
 
+    #[instrument]
     pub fn parse_asset_stream<'a, I>() -> impl Parser<I, Output = Asset> + 'a
     where
         I: RangeStream<Token = u8, Range = &'a [u8], Position = usize> + 'a,

@@ -4,8 +4,8 @@ use pgrx::prelude::*;
 use pgrx::Inet;
 use predicates::prelude::*;
 use predicates::BoxPredicate;
-use simple_logger::SimpleLogger;
 use std::collections::HashMap;
+use std::env;
 use std::net::IpAddr;
 use std::process;
 use std::thread::JoinHandle;
@@ -21,6 +21,7 @@ use config::ServerConfig;
 
 use crate::server::run_server;
 
+const PACKAGE_NAME: &str = env!("CARGO_PKG_NAME");
 const WORKER_NAME: &str = "http server";
 const SCHEMA_NAME: &str = "http_server";
 
@@ -70,7 +71,7 @@ struct ServerState {
 pub extern "C" fn _PG_init() {
     BackgroundWorkerBuilder::new(WORKER_NAME)
         .set_function("pg_graphql_server_main")
-        .set_library("pg_graphql_server")
+        .set_library(PACKAGE_NAME)
         .set_start_time(BgWorkerStartTime::RecoveryFinished)
         .enable_spi_access()
         .load();
@@ -81,8 +82,8 @@ pub extern "C" fn _PG_init() {
 pub extern "C" fn pg_graphql_server_main(_arg: pg_sys::Datum) {
     let name = BackgroundWorker::get_name();
 
-    // Initialize the log
-    SimpleLogger::new().init().unwrap();
+    // Initialize the tracing (TRACING=console / TRACING=telemetry)
+    init_tracing();
 
     // These are the signals we want to receive.  If we don't attach the SIGTERM handler, then
     // we'll never be able to exit via an external notification
@@ -97,13 +98,13 @@ pub extern "C" fn pg_graphql_server_main(_arg: pg_sys::Datum) {
     BackgroundWorker::transaction(|| {
         Spi::connect(
             |mut client| match client.update(ADMINISTRATION_SCHEMA, None, None) {
-                Ok(_) => log!("initialized administration schema"),
-                Err(_) => warning!("failed to initialize administration schema"),
+                Ok(_) => tracing::info!("initialized administration schema"),
+                Err(_) => tracing::warn!("failed to initialize administration schema"),
             },
         );
     });
 
-    log!("background worker {name} started");
+    tracing::info!("background worker {name} started");
 
     // The list of server threads we are managing
     let mut servers = HashMap::<i32, ServerState>::new();
@@ -126,7 +127,7 @@ pub extern "C" fn pg_graphql_server_main(_arg: pg_sys::Datum) {
                 None => true,
             };
             if is_finished {
-                warning!("cleaning up failed server on port {port}");
+                tracing::warn!("cleaning up failed server on port {port}");
                 servers.remove(&port);
             }
         }
@@ -140,24 +141,33 @@ pub extern "C" fn pg_graphql_server_main(_arg: pg_sys::Datum) {
                     |mut acc, row| {
                         let port = row
                             .get_datum_by_ordinal(1)
-                            .unwrap()
+                            .expect("expect queried column to be present")
                             .value::<i32>()
-                            .expect("Expected an integer")
-                            .expect("Expected port to not be null");
+                            .expect("expect database schema to enforce integer type constraint")
+                            .expect("expect database schema to enforce not null constraint");
                         let server_config = ServerConfig {
                             listen_port: port as u16,
                             server_host: row
                                 .get::<Inet>(2)
-                                .unwrap()
-                                .unwrap()
+                                .expect("expect queried type to be supported")
+                                .expect("expect queried column to be present")
                                 .0
                                 .as_str()
                                 .parse::<IpAddr>()
-                                .unwrap(),
+                                .expect("expect parsing of postgres inet type to succeed"),
                             server_port: row.get::<i32>(3).unwrap().unwrap().clamp(0, 65535) as u16,
-                            postgres_user: row.get(4).unwrap().unwrap(),
-                            postgres_pass: row.get(5).unwrap().unwrap(),
-                            database_name: row.get(6).unwrap().unwrap(),
+                            postgres_user: row
+                                .get(4)
+                                .expect("expect queried type to be supported")
+                                .expect("expect queried column to be present"),
+                            postgres_pass: row
+                                .get(5)
+                                .expect("expect queried type to be supported")
+                                .expect("expect queried column to be present"),
+                            database_name: row
+                                .get(6)
+                                .expect("expect queried type to be supported")
+                                .expect("expect queried column to be present"),
                         };
                         acc.insert(port, server_config);
                         acc
@@ -194,7 +204,7 @@ pub extern "C" fn pg_graphql_server_main(_arg: pg_sys::Datum) {
             let update_count = update.clone().count();
             let remove_count = remove.clone().count();
             if create_count + update_count + remove_count > 0 {
-                log!("updating HTTP servers: {create_count} to create, {update_count} to update and {remove_count} to remove");
+                tracing::info!("updating HTTP servers: {create_count} to create, {update_count} to update and {remove_count} to remove");
 
                 let ports_to_create = create.chain(update.clone()).collect::<Vec<i32>>();
                 let port_should_be_created = predicate::in_iter(ports_to_create);
@@ -214,7 +224,7 @@ pub extern "C" fn pg_graphql_server_main(_arg: pg_sys::Datum) {
     // Gracefully shutdown servers
     destroy_servers(&mut servers, &BoxPredicate::new(predicate::always()));
 
-    log!("background worker {name} shutdown");
+    tracing::info!("background worker {name} shutdown");
 }
 
 fn create_servers(
@@ -236,9 +246,9 @@ fn create_servers(
                 .unwrap()
                 .block_on(async {
                     match run_server(config.clone(), rx).await {
-                        Ok(_) => log::info!("Server done"),
+                        Ok(_) => tracing::info!("Server done"),
                         Err(e) => {
-                            log::warn!("Server thread exited with error: {}", e.to_string());
+                            tracing::warn!("Server thread exited with error: {}", e.to_string());
                             thread::sleep(Duration::from_millis(2500));
                             unsafe {
                                 // Signal our background worker so the server
@@ -258,9 +268,9 @@ fn create_servers(
                         server_config: c.clone(),
                     },
                 );
-                log!("created server on port {port}")
+                tracing::info!("created server on port {port}")
             }
-            Err(_) => warning!("failed to create server on port {port}"),
+            Err(_) => tracing::warn!("failed to create server on port {port}"),
         }
     }
 }
@@ -285,7 +295,7 @@ fn destroy_servers(servers: &mut HashMap<i32, ServerState>, predicate: &BoxPredi
         let mut server = servers.remove(&port).unwrap();
         match server.signal_sender.send(()) {
             Ok(_) => (),
-            Err(_) => warning!("failed to send shutdown signal to server on port {port}"),
+            Err(_) => tracing::warn!("failed to send shutdown signal to server on port {port}"),
         };
         servers_to_join.push((port, server.join_handle.take()));
     }
@@ -294,36 +304,57 @@ fn destroy_servers(servers: &mut HashMap<i32, ServerState>, predicate: &BoxPredi
     for (port, maybe_join_handle) in servers_to_join.iter_mut() {
         if let Some(join_handle) = maybe_join_handle.take() {
             match join_handle.join() {
-                Ok(_) => log!("removed server on port {port}"),
-                Err(_) => warning!("failed to wait for server on port {port}"),
+                Ok(_) => tracing::info!("removed server on port {port}"),
+                Err(_) => tracing::warn!("failed to wait for server on port {port}"),
             }
         }
     }
 }
 
-// async fn thread_main_test(
-//     config: ServerConfig,
-//     rx: tokio::sync::oneshot::Receiver<()>,
-// ) -> anyhow::Result<()> {
-//     println!("Hello from inside thread on port {:?}", config);
-//     match SystemTime::now().duration_since(UNIX_EPOCH) {
-//         Ok(n) => {
-//             if n.as_secs() % 2 == 0 {
-//                 match rx.await {
-//                     Ok(_) => println!("Shutdown signal received"),
-//                     Err(e) => {
-//                         println!("Failed to read oneshot signal: {:?}", e)
-//                     }
-//                 };
-//             } else {
-//                 tokio::time::sleep(Duration::from_millis(5000)).await;
-//                 println!("#### Simulated error exit from thread");
-//                 return Err(anyhow!("Timeout error simulation"));
-//             }
-//         }
-//         Err(_) => panic!("SystemTime before UNIX EPOCH!"),
-//     }
-//     println!("Bye from inside thread");
+#[cfg(debug_assertions)]
+pub fn init_tracing() {
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-//     Ok(())
-// }
+    let level_from_env_layer = tracing_subscriber::EnvFilter::builder()
+        .with_default_directive(tracing::level_filters::LevelFilter::INFO.into())
+        .from_env_lossy();
+
+    match env::var("TRACING") {
+        // Use the tokio-console subscriber
+        Ok(value) if value == "console" => {
+            console_subscriber::init();
+        }
+        // Use jaeger open telemetry subscriber
+        Ok(value) if value == "telemetry" => {
+            let jaeger_tracer = opentelemetry_jaeger::new_agent_pipeline()
+                .with_service_name(PACKAGE_NAME)
+                .install_simple()
+                .expect("expected jaeger tracer set up to succeed");
+            let telemetry_layer = tracing_opentelemetry::layer().with_tracer(jaeger_tracer);
+            tracing_subscriber::registry()
+                .with(telemetry_layer)
+                .with(tracing_subscriber::fmt::layer())
+                .with(level_from_env_layer)
+                .init()
+        }
+        // Regular logging otherwise
+        _ => {
+            tracing_subscriber::registry()
+                .with(tracing_subscriber::fmt::layer())
+                .with(level_from_env_layer)
+                .init();
+        }
+    }
+}
+
+#[cfg(not(debug_assertions))]
+pub fn init_tracing() {
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(tracing::level_filters::LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
+        .init();
+}

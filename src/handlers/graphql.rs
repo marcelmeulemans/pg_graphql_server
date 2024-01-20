@@ -1,9 +1,10 @@
+use super::{context::ServerContext, errors::HandlerError};
 use async_graphql_axum::GraphQLRequest;
 use axum::{extract::State, Json};
 use serde_json::Value;
+use tracing::{instrument, Instrument};
 
-use super::{context::ServerContext, errors::HandlerError};
-
+#[instrument(skip(state, req), fields(operation = req.0.operation_name, query = req.0.query))]
 pub async fn graphql_handler(
     State(state): State<ServerContext>,
     mut req: GraphQLRequest,
@@ -15,6 +16,11 @@ pub async fn graphql_handler(
     let json: Value = sqlx::query_scalar("SELECT graphql.resolve($1)")
         .bind(req.0.query)
         .fetch_one(&state.pool)
-        .await?;
+        .instrument(tracing::debug_span!("query_resolver"))
+        .await
+        .map_err(|e| {
+            tracing::warn!("failed to resolve graphql query: {e}");
+            HandlerError::GraphqlExtensionNotAvailable
+        })?;
     Ok(Json(json))
 }

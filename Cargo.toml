@@ -18,29 +18,30 @@ pgrx = "=0.11.2"
 async-graphql = "5.0"
 async-graphql-axum = "5.0"
 tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread", "tracing", "signal"] }
-axum = { version = "0.6", default-features = false, features = ["json", "query", "tokio", "http2", "matched-path", "original-uri", "tower-log" ] }
+tower-http = { version = "0.4.4", features = ["trace"] }
+axum = { version = "0.6", default-features = false, features = ["json", "query", "tokio", "http2", "matched-path", "original-uri", "tower-log", "tracing" ] }
 tokio-postgres = { version = "0.7" }
 sqlx = { version = "0.7", features = [ "postgres", "json", "runtime-tokio" ] }
-console-subscriber = "0.1"
+log = "0.4"
+tracing = "0.1"
+console-subscriber = "0.2"
 tracing-subscriber = "0.3"
-anyhow = "1.0.75"
 thiserror = "1.0.50"
 serde_json = "1.0"
 libc = "0.2"
 const_format = "0.2.31"
 predicates = "3.0.4"
-log = "0.4"
-simple_logger = { version = "4.3", default-features = false, features = ["timestamps"] }
 tokio-stream = "0.1.14"
 bytes = "1.5.0"
 futures = "0.3.29"
-pin-project-lite = "0.2.13"
 combine = "4.6.6"
 axum-macros = "0.4.0"
 futures-concurrency = "7.4.3"
 regex = "1.10.2"
-ouroboros = "0.18.2"
 mime_guess = "2.0.4"
+opentelemetry = "0.21"
+tracing-opentelemetry = "0.22"
+opentelemetry-jaeger = "0.20"
 
 [dev-dependencies]
 pgrx-tests = "=0.11.2"

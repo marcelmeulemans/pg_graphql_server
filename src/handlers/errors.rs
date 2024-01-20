@@ -9,6 +9,8 @@ pub enum HandlerError {
     GraphqlError(async_graphql::ServerError),
     #[error(transparent)]
     DatabaseError(#[from] sqlx::Error),
+    #[error("pg_graphql extension not available error")]
+    GraphqlExtensionNotAvailable,
 }
 
 impl IntoResponse for HandlerError {
@@ -20,6 +22,9 @@ impl IntoResponse for HandlerError {
                 Json(json!({"message": e.to_string()})),
             )
                 .into_response(),
+            HandlerError::GraphqlExtensionNotAvailable => {
+                (StatusCode::SERVICE_UNAVAILABLE).into_response()
+            }
         }
     }
 }
