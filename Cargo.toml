@@ -15,11 +15,11 @@ pg_test = []
 
 [dependencies]
 pgrx = "=0.11.2"
-async-graphql = "5.0"
-async-graphql-axum = "5.0"
+async-graphql = "7.0"
+async-graphql-axum = "7.0"
 tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread", "tracing", "signal"] }
-tower-http = { version = "0.4.4", features = ["trace"] }
-axum = { version = "0.6", default-features = false, features = ["json", "query", "tokio", "http2", "matched-path", "original-uri", "tower-log", "tracing" ] }
+tower-http = { version = "0.5", features = ["trace", "timeout"] }
+axum = { version = "0.7", default-features = false, features = ["json", "query", "tokio", "http2", "matched-path", "original-uri", "tower-log", "tracing" ] }
 tokio-postgres = { version = "0.7" }
 sqlx = { version = "0.7", features = [ "postgres", "json", "runtime-tokio" ] }
 log = "0.4"

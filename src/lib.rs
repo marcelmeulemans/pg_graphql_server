@@ -203,8 +203,9 @@ pub extern "C" fn pg_graphql_server_main(_arg: pg_sys::Datum) {
             let create_count = create.clone().count();
             let update_count = update.clone().count();
             let remove_count = remove.clone().count();
+            let unchanged_count = servers.len() - update_count - remove_count;
             if create_count + update_count + remove_count > 0 {
-                tracing::info!("updating HTTP servers: {create_count} to create, {update_count} to update and {remove_count} to remove");
+                tracing::info!("updating HTTP servers: {create_count} to create, {update_count} to update and {remove_count} to remove ({unchanged_count} unchanged)");
 
                 let ports_to_create = create.chain(update.clone()).collect::<Vec<i32>>();
                 let port_should_be_created = predicate::in_iter(ports_to_create);
@@ -246,7 +247,7 @@ fn create_servers(
                 .unwrap()
                 .block_on(async {
                     match run_server(config.clone(), rx).await {
-                        Ok(_) => tracing::info!("Server done"),
+                        Ok(_) => tracing::info!("server exited"),
                         Err(e) => {
                             tracing::warn!("Server thread exited with error: {}", e.to_string());
                             thread::sleep(Duration::from_millis(2500));
