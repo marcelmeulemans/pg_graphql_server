@@ -141,56 +141,35 @@ mod parser {
             })
     }
 
-    // #[test]
-    // fn header_test() {
-    //     let data = include_bytes!("../assets/copy-out-data");
-    //     println!("DATA: {:?}", data);
-    //     let result = decode(data);
-    //     if let Ok(tuples) = result {
-    //         for tuple in tuples {
-    //             println!(
-    //                 "{} | {:?}",
-    //                 //u32::from_be_bytes(tuple.data[0].try_into()),
-    //                 std::str::from_utf8(&tuple.data[1]).unwrap(),
-    //                 tuple.data[2]
-    //             );
-    //         }
-    //     }
-    // }
+    #[cfg(test)]
+    use speculoos::{assert_that, result::ResultAssertions};
 
-    // #[test]
-    // fn header_test() {
-    //     let data = include_bytes!("../assets/copy-out-data");
-    //     let mut part = Vec::<u8>::new();
-    //     let mut i = 0;
-    //     loop {
-    //         part.extend_from_slice(&data[i * 2..(i + 1) * 2]);
+    #[test]
+    fn parse_copy_out_data_with_asset() {
+        // Arrange
+        let data = include_bytes!("./test_data/test_txt_copy_out_query.data");
 
-    //         let result = parse_header().parse(part.as_slice());
-    //         match result {
-    //             Ok(result) => {
-    //                 println!("Result: {:?}", result);
-    //                 break;
-    //                 // for tuple in tuples {
-    //                 //     println!(
-    //                 //         "{} | {:?}",
-    //                 //         //u32::from_be_bytes(tuple.data[0].try_into()),
-    //                 //         std::str::from_utf8(&tuple.data[1]).unwrap(),
-    //                 //         tuple.data[2]
-    //                 //     );
-    //                 // }
-    //             }
-    //             Err(e) => match e {
-    //                 UnexpectedParse::Eoi => {
-    //                     println!("Incomplete");
-    //                     i += 1;
-    //                 }
-    //                 UnexpectedParse::Unexpected => {
-    //                     println!("ERROR: {:?}: {:?}", e, part);
-    //                     break;
-    //                 }
-    //             },
-    //         }
-    //     }
-    // }
+        // Act
+        let result = parse_asset_stream().parse(combine::stream::position::Stream::new(&data[..]));
+
+        // Assert
+        assert_that(&result).is_ok();
+        let asset = result.unwrap().0;
+        assert_that(&asset.name.as_str()).is_equal_to("test.txt");
+        assert_that(&asset.hash.as_str()).is_equal_to("d8e8fca2dc0f896fd7cb4cb0031ba249");
+        assert_that(&asset.body.len()).is_equal_to(5);
+        assert_that(&&data[asset.body]).is_equal_to("test\n".as_bytes());
+    }
+
+    #[test]
+    fn parse_copy_out_data_without_asset() {
+        // Arrange
+        let data = include_bytes!("./test_data/no_result_copy_out_query.data");
+
+        // Act
+        let result = parse_asset_stream().parse(combine::stream::position::Stream::new(&data[..]));
+
+        // Assert
+        assert_that(&result).is_err();
+    }
 }
