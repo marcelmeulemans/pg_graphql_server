@@ -42,6 +42,9 @@ mime_guess = "2.0.4"
 opentelemetry = "0.21"
 tracing-opentelemetry = "0.22"
 opentelemetry-jaeger = "0.20"
+cached = { version = "0.48.1", features = ["default", "async"] }
+md-5 = "0.10.6"
+hex = "0.4.3"
 
 [dev-dependencies]
 pgrx-tests = "=0.11.2"
